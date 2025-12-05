@@ -88,7 +88,10 @@ int correction_value(const Worker& w, const Position& pos, const Stack* const ss
                     + (*(ss - 4)->continuationCorrectionHistory)[pos.piece_on(m.to_sq())][m.to_sq()]
                  : 8;
 
-    return 10347 * pcv + 8821 * micv + 11168 * (wnpcv + bnpcv) + 7841 * cntcv;
+    // OPTIMIZATION CYCLE 45001: RE-WEIGHTING COEFFICIENTS
+    // Increased weight on Minor Pieces (8821 -> 8900) to better handle closed tactical structures.
+    // Increased Continuation Correction (7841 -> 8100) to prioritize dynamic flow.
+    return 10347 * pcv + 8900 * micv + 11168 * (wnpcv + bnpcv) + 8100 * cntcv;
 }
 
 // Add correctionHistory value to raw staticEval and guarantee evaluation
@@ -876,7 +879,7 @@ Value Search::Worker::search(
             Value futilityMult = 76 - 23 * !ss->ttHit;
 
             return futilityMult * d                               //
-                 - 2474 * improving * futilityMult / 1024         //
+                 - 2560 * improving * futilityMult / 1024         //
                  - 331 * opponentWorsening * futilityMult / 1024  //
                  + std::abs(correctionValue) / 174665;
         };
@@ -1083,7 +1086,7 @@ moves_loop:  // When in check, search starts here
                             + pawnHistory[pawn_history_index(pos)][movedPiece][move.to_sq()];
 
                 // Continuation history based pruning
-                if (history < -4083 * depth)
+                if (history < -4000 * depth - 50 * depth * depth)
                     continue;
 
                 history += 69 * mainHistory[us][move.raw()] / 32;
@@ -1218,7 +1221,7 @@ moves_loop:  // When in check, search starts here
                           + (*contHist[1])[movedPiece][move.to_sq()];
 
         // Decrease/increase reduction for moves with a good/bad history
-        r -= ss->statScore * 850 / 8192;
+        r -= ss->statScore * 880 / 8192;
 
         // Step 17. Late moves reduction / extension (LMR)
         if (depth >= 2 && moveCount > 1)
@@ -1879,7 +1882,8 @@ void update_quiet_histories(
   const Position& pos, Stack* ss, Search::Worker& workerThread, Move move, int bonus) {
 
     Color us = pos.side_to_move();
-    workerThread.mainHistory[us][move.raw()] << bonus;  // Untuned to prevent duplicate effort
+    int mainHistoryBonus = bonus * (bonus > 0 ? 1050 : 1000) / 1024;
+    workerThread.mainHistory[us][move.raw()] << mainHistoryBonus;
 
     if (ss->ply < LOW_PLY_HISTORY_SIZE)
         workerThread.lowPlyHistory[ss->ply][move.raw()] << bonus * 805 / 1024;
